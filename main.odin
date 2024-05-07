@@ -8,49 +8,97 @@ import "core:bufio"
 import rl "vendor:raylib"
 import "core:time"
 
-WIDTH :: 1280
-HEIGHT :: 720
-DIFFUSION_CONSTANT :: 1.0
+L :: 100
+T :: 500
+alpha :: 10.0
+dx :: 1.0
+dt : f32 = (dx * dx) / (4*alpha)
+gamma : f32 = (alpha * dt) / (dx*dx)
+rw :: 10
+rh :: 10
+
+
 grid := init_grid(initial_condition, boundary_condition)
 temp_grid := init_grid(initial_condition, boundary_condition)
 max_value : f32 = 1e-6
 min_value : f32 = math.MAX_F32_PRECISION
 frame_number := 0
-TIME_BETWEEN_UPDATES :: 1
-last_update := time.time_to_unix_nano(time.now())
+// TIME_BETWEEN_UPDATES :: 500
+// last_update := time.time_to_unix_nano(time.now())
 
 initial_condition :: proc(row, col: i32) -> f32 {
-    row_scaled := f32(row) / f32(WIDTH)
-    col_scaled := f32(col) / f32(HEIGHT)
-    return math.sin(math.TAU*row_scaled)*math.sin(math.TAU*col_scaled)
+    row_scaled := f32(row) / f32(L)
+    col_scaled := f32(col) / f32(L)
+    return 100*math.sin(math.TAU*row_scaled)*math.sin(math.TAU*col_scaled)
 }
 
 boundary_condition :: proc(x, y: i32, t: f32) -> f32 {
+    if x == 0 {
+        return -10
+    }
+    if x == L {
+        return -10
+    }
+    if y == 0{
+        return -10
+    }
+    if y == L {
+        return -10
+    }
     return 0
 }
 
-update :: proc(dt: f32){
-    t := time.time_to_unix_nano(time.now())
-    if (t - last_update) <= TIME_BETWEEN_UPDATES{
-        return
+init_grid :: proc(
+    initial_condition: proc(row, col:i32) -> f32,
+    boundary_condition: proc(row, col:i32, t:f32) -> f32
+) -> []f32 
+{
+    grid := make([]f32, L*L)
+    i_temp, j_temp: i32
+    for i in 0..<i32(L) {
+        for j in 0..<i32(L) {
+            grid[i*L + j] = initial_condition(i, j)
+            if i == 0 || j == 0 || i == L-1 || j == L-1 {
+                grid[i*L + j] = boundary_condition(i, j, 0)
+            }
+        }
     }
-    last_update = t
-    current_cell: f32
-    for i in 1..<HEIGHT-1 {
-        for j in 1..<WIDTH -1 {
-            current_cell = grid[i*WIDTH + j]
-            temp_grid[i*WIDTH + j] = current_cell + 1
-            fmt.println(grid[(i+1)*WIDTH + j], grid[(i-1)*WIDTH + j])
-            temp_grid[i*WIDTH + j] = current_cell + DIFFUSION_CONSTANT * dt * (
-                grid[(i+1)*WIDTH + j] + \  
-                grid[(i-1)*WIDTH + j]  + \
-                grid[i*WIDTH + (j+1)] + \
-                grid[i*WIDTH + (j-1)] + \
-                -4 * current_cell   \
+
+    return grid
+}
+
+print_grid :: proc(grid: []f32){
+    for i in 0..<L {
+        line: [L]string
+        for j in 0..<L {
+            line[j] =  fmt.aprintf("{0:.0f}", grid[i*L + j])
+        }
+        joined_line := strings.join(line[:], " ")
+        fmt.println(joined_line)
+    }
+}
+
+normalize_range :: proc(value, min, max: f32) -> f32 {
+    return (value - min) / (max - min)
+}
+
+update :: proc(dt: f32){
+    // t := time.time_to_unix_nano(time.now())
+    // if (t - last_update) <= TIME_BETWEEN_UPDATES{
+    //     return
+    // }
+    // last_update = t
+    for i in 1..<L-1 {
+        for j in 1..<L -1 {
+            temp_grid[i*L + j] = grid[i*L + j] + gamma * (
+                grid[(i+1)*L + j] + \  
+                grid[(i-1)*L + j]  + \
+                grid[i*L + (j+1)] + \
+                grid[i*L + (j-1)] + \
+                -4 * grid[i*L + j]   \
             )
-            // fmt.println(temp_grid[i*WIDTH + j])
-            max_value = max(max_value, temp_grid[i*WIDTH + j])
-            min_value = min(min_value, temp_grid[i*WIDTH + j])
+            max_value = max(max_value, temp_grid[i*L + j])
+            min_value = min(min_value, temp_grid[i*L + j])
         }
     }
     grid = temp_grid
@@ -65,32 +113,23 @@ color_to_value :: proc(color: rl.Color) -> u32 {
 draw :: proc(){
     
     rl.BeginDrawing()
-    // rl.DrawText(fmt.ctprintf("Frame number: {0}", frame_number), 10, 10, 14, rl.WHITE)
     rl.ClearBackground(rl.BLACK)
-    // pixels := make([]rl.Color, HEIGHT*WIDTH)
-    
-    // img := rl.GenImageColor(WIDTH, HEIGHT, rl.BLACK)
-    // rl.ImageFormat(&img, .UNCOMPRESSED_R8G8B8A8)
-    // tex := rl.LoadTextureFromImage(img);
-
-    rgba_pixels := make([]u8, WIDTH*HEIGHT*4)
+    rgba_pixels := make([]u8, L*L*4)
     current_value: f32
-    for i in 0..<i32(HEIGHT) {
-        for j in 0..<i32(WIDTH) {
-            current_value = grid[i*WIDTH + j]
+    for i in 0..<i32(L) {
+        for j in 0..<i32(L) {
+            current_value = grid[i*L + j]
             color := colormap_lookup(&viridis_data, normalize_range(current_value, min_value, max_value))
-            rl.DrawPixel(j, i, color)
+            rl.DrawRectangle(i*rw, j*rh, rw, rh, color)
         }
     }
     rl.EndDrawing()
-
 }
 
 main :: proc() {
-    rl.InitWindow(WIDTH, HEIGHT, "Heat equation")
-    rl.SetTargetFPS(1)
+    rl.InitWindow(L*rw, L*rh, "Heat equation")
+    rl.SetTargetFPS(60)
 
-    // print_grid(grid)
     for (!rl.WindowShouldClose()){
         fmt.printfln("MIN: {0}, MAX: {1}", min_value, max_value)
         update(rl.GetFrameTime())
@@ -100,36 +139,3 @@ main :: proc() {
     rl.CloseWindow()
 }
 
-init_grid :: proc(
-    initial_condition: proc(row, col:i32) -> f32,
-    boundary_condition: proc(row, col:i32, t:f32) -> f32
-) -> []f32 
-{
-    grid := make([]f32, HEIGHT*WIDTH)
-    i_temp, j_temp: i32
-    for i in 0..<i32(HEIGHT) {
-        for j in 0..<i32(WIDTH) {
-            grid[i*WIDTH + j] = initial_condition(i, j)
-            if i == 0 || j == 0 || i == HEIGHT-1 || j == WIDTH-1 {
-                grid[i*WIDTH + j] = boundary_condition(i, j, 0)
-            }
-        }
-    }
-
-    return grid
-}
-
-print_grid :: proc(grid: []f32){
-    for i in 0..<HEIGHT {
-        line: [WIDTH]string
-        for j in 0..<WIDTH {
-            line[j] =  fmt.aprintf("{0:.0f}", grid[i*WIDTH + j])
-        }
-        joined_line := strings.join(line[:], " ")
-        fmt.println(joined_line)
-    }
-}
-
-normalize_range :: proc(value, min, max: f32) -> f32 {
-    return (value - min) / (max - min)
-}
